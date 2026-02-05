@@ -1,0 +1,117 @@
+# Base configuration for UniVL MSRVTT Video Captioning
+
+# Task settings
+task_type: caption
+stage_two: true
+seed: 42
+
+# Model architecture
+model:
+  # Encoder layers
+  text_num_hidden_layers: 12
+  visual_num_hidden_layers: 6
+  cross_num_hidden_layers: 2
+  decoder_num_hidden_layers: 3
+  
+  # Hidden sizes
+  hidden_size: 768
+  video_dim: 1024
+  vocab_size: 30522
+  
+  # Sequence lengths
+  max_words: 48
+  max_frames: 48
+  max_position_embeddings: 512
+  
+  # Dropout
+  hidden_dropout_prob: 0.1
+  attention_probs_dropout_prob: 0.1
+  
+  # Pretrain mode
+  pretrain_mode: false
+
+# Data configuration
+data:
+  # Paths (relative to data_dir or absolute)
+  data_dir: "data/msrvtt"
+  train_csv: "MSRVTT_train.9k.csv"
+  val_csv: "MSRVTT_JSFUSION_test.csv"
+  data_json: "MSRVTT_data.json"
+  features_path: "msrvtt_videos_features.pickle"
+  
+  # Data processing
+  max_words: 48
+  max_frames: 48
+  num_workers: 4
+  prefetch_factor: 2
+  
+  # MLM/MFM for pretrain
+  mlm_probability: 0.15
+  mfm_probability: 0.15
+
+# Training configuration
+training:
+  # Optimization
+  learning_rate: 3.0e-5
+  coef_lr: 0.1  # LR coefficient for BERT
+  weight_decay: 0.01
+  adam_epsilon: 1.0e-8
+  max_grad_norm: 1.0
+  
+  # Schedule
+  epochs: 5
+  warmup_ratio: 0.1
+  
+  # Batch sizes
+  batch_size: 128
+  batch_size_val: 32
+  gradient_accumulation_steps: 1
+  
+  # Mixed precision
+  use_amp: true
+  
+  # Distributed training
+  local_rank: -1
+  n_gpu: 1
+  
+  # Checkpointing
+  save_steps: 1000
+  eval_steps: 1000
+  logging_steps: 100
+  
+  # Output
+  output_dir: "checkpoints/base"
+  
+  # Pretrain specific
+  do_pretrain: false
+
+# Evaluation configuration
+evaluation:
+  # Generation
+  beam_size: 5
+  max_gen_length: 20
+  length_penalty: 1.0
+  
+  # Metrics
+  metrics:
+    - bleu
+    - meteor
+    - rouge
+    - cider
+
+# Logging configuration
+logging:
+  # Logging backend
+  use_wandb: true
+  use_tensorboard: true
+  
+  # W&B settings
+  wandb_project: "univl-msrvtt"
+  wandb_entity: null
+  wandb_run_name: null
+  
+  # TensorBoard
+  tensorboard_dir: "runs"
+  
+  # Logging level
+  log_level: "INFO"

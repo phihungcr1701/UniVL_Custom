@@ -1,0 +1,76 @@
+# Configuration for fine-tuning UniVL on MSRVTT video captioning
+# Assumes pretrained checkpoint from pretrain_msrvtt.yaml
+
+task_type: caption
+stage_two: true
+seed: 42
+
+# Model architecture
+model:
+  text_num_hidden_layers: 12
+  visual_num_hidden_layers: 6
+  cross_num_hidden_layers: 2
+  decoder_num_hidden_layers: 3
+  hidden_size: 768
+  video_dim: 1024
+  max_words: 48
+  max_frames: 48
+  pretrain_mode: false  # Disable MLM/MFM heads for fine-tuning
+
+# Data configuration
+data:
+  data_dir: "data/msrvtt"
+  train_csv: "MSRVTT_train.9k.csv"
+  val_csv: "MSRVTT_JSFUSION_test.csv"
+  data_json: "MSRVTT_data.json"
+  features_path: "msrvtt_videos_features.pickle"
+  max_words: 48
+  max_frames: 48
+  num_workers: 4
+  prefetch_factor: 2
+  # No masking for fine-tuning
+  mlm_probability: 0.0
+  mfm_probability: 0.0
+
+# Training configuration
+training:
+  learning_rate: 3.0e-5  # Lower LR for fine-tuning
+  coef_lr: 0.1  # BERT uses 0.1x learning rate
+  weight_decay: 0.01
+  adam_epsilon: 1.0e-8
+  max_grad_norm: 1.0
+  epochs: 5  # Fewer epochs for fine-tuning
+  warmup_ratio: 0.1
+  batch_size: 128
+  batch_size_val: 32
+  gradient_accumulation_steps: 1
+  use_amp: true
+  local_rank: -1
+  n_gpu: 1
+  save_steps: 1000
+  eval_steps: 1000
+  logging_steps: 100
+  output_dir: "checkpoints/finetune"
+  do_pretrain: false
+
+# Evaluation configuration
+evaluation:
+  # Beam search settings
+  beam_size: 5
+  max_gen_length: 20
+  length_penalty: 1.0
+  # Metrics to compute
+  metrics:
+    - bleu
+    - meteor
+    - rouge
+    - cider
+
+# Logging configuration
+logging:
+  use_wandb: true
+  use_tensorboard: true
+  wandb_project: "univl-msrvtt-caption"
+  wandb_run_name: "finetune_caption"
+  tensorboard_dir: "runs/finetune"
+  log_level: "INFO"

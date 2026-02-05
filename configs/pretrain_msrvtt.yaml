@@ -1,0 +1,67 @@
+# Configuration for pretraining UniVL on MSRVTT
+# Includes MLM (Masked Language Modeling) and MFM (Masked Frame Modeling)
+
+# Inherit from base config
+task_type: pretrain
+stage_two: true  # Still use cross encoder for pretrain
+seed: 42
+
+# Model architecture
+model:
+  text_num_hidden_layers: 12
+  visual_num_hidden_layers: 6
+  cross_num_hidden_layers: 2
+  decoder_num_hidden_layers: 3
+  hidden_size: 768
+  video_dim: 1024
+  max_words: 48
+  max_frames: 48
+  pretrain_mode: true  # Enable MLM/MFM heads
+
+# Data configuration
+data:
+  data_dir: "data/msrvtt"
+  train_csv: "MSRVTT_train.9k.csv"
+  val_csv: "MSRVTT_JSFUSION_test.csv"
+  data_json: "MSRVTT_data.json"
+  features_path: "msrvtt_videos_features.pickle"
+  max_words: 48
+  max_frames: 48
+  num_workers: 4
+  # Masking probabilities for pretrain
+  mlm_probability: 0.15
+  mfm_probability: 0.15
+
+# Training configuration
+training:
+  learning_rate: 1.0e-4  # Higher LR for pretrain
+  coef_lr: 1.0  # No coefficient for pretrain (all modules same LR)
+  weight_decay: 0.01
+  epochs: 20  # More epochs for pretrain
+  warmup_ratio: 0.1
+  batch_size: 256  # Larger batch for pretrain
+  batch_size_val: 64
+  gradient_accumulation_steps: 1
+  use_amp: true
+  output_dir: "checkpoints/pretrain"
+  do_pretrain: true
+  save_steps: 500
+  eval_steps: 1000
+  logging_steps: 50
+
+# Evaluation configuration
+evaluation:
+  beam_size: 5
+  max_gen_length: 20
+  # Note: Pretrain doesn't use caption metrics, but kept for compatibility
+  metrics:
+    - bleu
+
+# Logging configuration
+logging:
+  use_wandb: true
+  use_tensorboard: true
+  wandb_project: "univl-msrvtt-pretrain"
+  wandb_run_name: "pretrain_mlm_mfm"
+  tensorboard_dir: "runs/pretrain"
+  log_level: "INFO"
