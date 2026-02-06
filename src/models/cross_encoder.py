@@ -225,7 +225,8 @@ class CrossModel(nn.Module):
 
         # Create 3D attention mask
         extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_attention_mask = extended_attention_mask.to(dtype=next(self.parameters()).dtype)
+        # Use embeddings dtype for safety in DataParallel
+        extended_attention_mask = extended_attention_mask.to(dtype=self.embeddings.token_type_embeddings.weight.dtype)
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
 
         embedding_output = self.embeddings(concat_input, concat_type)

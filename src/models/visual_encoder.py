@@ -219,7 +219,8 @@ class VisualModel(nn.Module):
 
         # Create 3D attention mask
         extended_video_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-        extended_video_mask = extended_video_mask.to(dtype=next(self.parameters()).dtype)
+        # Use embeddings dtype for safety in DataParallel
+        extended_video_mask = extended_video_mask.to(dtype=self.embeddings.word_embeddings.weight.dtype)
         extended_video_mask = (1.0 - extended_video_mask) * -10000.0
 
         embedding_output = self.embeddings(video)
