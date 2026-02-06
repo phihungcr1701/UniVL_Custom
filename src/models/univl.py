@@ -5,8 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, Tuple, Optional
 
-from .encoders import TextEncoder, VisualEncoder, CrossEncoder
+from .text_encoder import BertModel
+from .visual_encoder import VisualModel
+from .cross_encoder import CrossModel
 from .decoder import CaptionDecoder
+from .beam import Beam
 
 
 class UniVLModel(nn.Module):
@@ -27,37 +30,38 @@ class UniVLModel(nn.Module):
         self.pretrain_mode = config.model.pretrain_mode
         
         # ===== Encoders =====
-        # Text encoder (BERT)
-        self.text_encoder = TextEncoder(
-            pretrained_model="bert-base-uncased",
-            num_hidden_layers=self.model_config.text_num_hidden_layers,
+        # Text encoder (BERT) - matches checkpoint: bert.*
+        self.bert = BertModel(
+            vocab_size=self.model_config.vocab_size,
             hidden_size=self.model_config.hidden_size,
+            num_hidden_layers=self.model_config.text_num_hidden_layers,
             hidden_dropout_prob=self.model_config.hidden_dropout_prob,
+            attention_probs_dropout_prob=self.model_config.attention_probs_dropout_prob,
         )
         
-        # Visual encoder
-        self.visual_encoder = VisualEncoder(
+        # Visual encoder - matches checkpoint: visual.*
+        self.visual = VisualModel(
             video_dim=self.model_config.video_dim,
             hidden_size=self.model_config.hidden_size,
             num_hidden_layers=self.model_config.visual_num_hidden_layers,
             hidden_dropout_prob=self.model_config.hidden_dropout_prob,
             attention_probs_dropout_prob=self.model_config.attention_probs_dropout_prob,
-            max_position_embeddings=self.model_config.max_frames,
+            max_position_embeddings=512,  # Fixed: must match checkpoint (not config.max_frames)
         )
         
-        # Cross encoder
-        self.cross_encoder = CrossEncoder(
+        # Cross encoder - matches checkpoint: cross.*
+        self.cross = CrossModel(
             hidden_size=self.model_config.hidden_size,
             num_hidden_layers=self.model_config.cross_num_hidden_layers,
             hidden_dropout_prob=self.model_config.hidden_dropout_prob,
             attention_probs_dropout_prob=self.model_config.attention_probs_dropout_prob,
-            max_position_embeddings=self.model_config.max_words + self.model_config.max_frames,
+            max_position_embeddings=1024,  # Fixed: must match checkpoint (source uses 1024)
         )
         
         # ===== Decoder =====
         # Get word embeddings from BERT for sharing
-        bert_word_embeddings = self.text_encoder.bert.embeddings.word_embeddings.weight
-        bert_position_embeddings = self.text_encoder.bert.embeddings.position_embeddings.weight
+        bert_word_embeddings = self.bert.embeddings.word_embeddings.weight
+        bert_position_embeddings = self.bert.embeddings.position_embeddings.weight
         
         self.decoder = CaptionDecoder(
             vocab_size=self.model_config.vocab_size,
@@ -133,18 +137,18 @@ class UniVLModel(nn.Module):
         
         # ===== Encode =====
         # Text encoding
-        text_hidden, _ = self.text_encoder(
+        text_hidden, _ = self.bert(
             text_input,
-            attention_mask,
-            token_type_ids,
+            token_type_ids=token_type_ids,
+            attention_mask=attention_mask,
             output_all_encoded_layers=True,
         )
         sequence_output = text_hidden[-1]  # Last layer
         
         # Visual encoding
-        visual_hidden, _ = self.visual_encoder(
+        visual_hidden, _ = self.visual(
             video_input,
-            video_mask,
+            attention_mask=video_mask,
             output_all_encoded_layers=True,
         )
         visual_output = visual_hidden[-1]  # Last layer
@@ -155,15 +159,16 @@ class UniVLModel(nn.Module):
         concat_mask = torch.cat([attention_mask, video_mask], dim=1)
         
         # Token type: 0 for text, 1 for video
-        text_type = torch.zeros_like(attention_mask)
-        video_type = torch.ones_like(video_mask)
+        # IMPORTANT: Must use .long() for embedding layer
+        text_type = torch.zeros_like(attention_mask, dtype=torch.long)
+        video_type = torch.ones_like(video_mask, dtype=torch.long)
         concat_type = torch.cat([text_type, video_type], dim=1)
         
         # Cross encoding
-        cross_hidden, cross_pooled = self.cross_encoder(
+        cross_hidden, cross_pooled = self.cross(
             concat_features,
-            concat_type,
-            concat_mask,
+            concat_type=concat_type,
+            attention_mask=concat_mask,
             output_all_encoded_layers=True,
         )
         cross_output = cross_hidden[-1]  # Last layer
@@ -273,12 +278,13 @@ class UniVLModel(nn.Module):
         video: torch.Tensor,
         video_mask: torch.Tensor,
         max_length: int = 20,
-        beam_size: int = 1,
+        beam_size: int = 5,
         bos_token_id: int = 101,
         eos_token_id: int = 102,
+        tokenizer=None,
     ) -> torch.Tensor:
         """
-        Generate caption for video (inference mode)
+        Generate caption for video using beam search (following source UniVL implementation)
         
         Args:
             video: Video features (batch_size, max_frames, video_dim)
@@ -287,6 +293,7 @@ class UniVLModel(nn.Module):
             beam_size: Beam size for beam search (1 = greedy)
             bos_token_id: Begin-of-sequence token
             eos_token_id: End-of-sequence token
+            tokenizer: Tokenizer for beam search
         
         Returns:
             Generated caption token IDs (batch_size, max_length)
@@ -301,17 +308,17 @@ class UniVLModel(nn.Module):
         token_type_ids = torch.zeros(batch_size, 2, dtype=torch.long, device=device)
         
         # Encode
-        text_hidden, _ = self.text_encoder(
+        text_hidden, _ = self.bert(
             input_ids,
-            attention_mask,
-            token_type_ids,
+            token_type_ids=token_type_ids,
+            attention_mask=attention_mask,
             output_all_encoded_layers=True,
         )
         sequence_output = text_hidden[-1]
         
-        visual_hidden, _ = self.visual_encoder(
+        visual_hidden, _ = self.visual(
             video,
-            video_mask,
+            attention_mask=video_mask,
             output_all_encoded_layers=True,
         )
         visual_output = visual_hidden[-1]
@@ -319,14 +326,15 @@ class UniVLModel(nn.Module):
         # Cross encoding
         concat_features = torch.cat([sequence_output, visual_output], dim=1)
         concat_mask = torch.cat([attention_mask, video_mask], dim=1)
-        text_type = torch.zeros_like(attention_mask)
-        video_type = torch.ones_like(video_mask)
+        # IMPORTANT: Must use .long() for embedding layer
+        text_type = torch.zeros_like(attention_mask, dtype=torch.long)
+        video_type = torch.ones_like(video_mask, dtype=torch.long)
         concat_type = torch.cat([text_type, video_type], dim=1)
         
-        cross_hidden, _ = self.cross_encoder(
+        cross_hidden, _ = self.cross(
             concat_features,
-            concat_type,
-            concat_mask,
+            concat_type=concat_type,
+            attention_mask=concat_mask,
             output_all_encoded_layers=True,
         )
         cross_output = cross_hidden[-1]
@@ -342,13 +350,154 @@ class UniVLModel(nn.Module):
                 eos_token_id=eos_token_id,
             )
         else:
-            # Beam search (not implemented yet, default to greedy)
-            generated = self.decoder.generate(
+            # Beam search (following source UniVL implementation)
+            generated = self._beam_search(
                 cross_output,
                 concat_mask,
                 max_length=max_length,
+                beam_size=beam_size,
                 bos_token_id=bos_token_id,
                 eos_token_id=eos_token_id,
+                tokenizer=tokenizer,
             )
         
         return generated
+    
+    def _beam_search(
+        self,
+        cross_output: torch.Tensor,
+        cross_mask: torch.Tensor,
+        max_length: int,
+        beam_size: int,
+        bos_token_id: int,
+        eos_token_id: int,
+        tokenizer=None,
+    ) -> torch.Tensor:
+        """
+        Beam search implementation (following source UniVL)
+        
+        Args:
+            cross_output: Cross encoder output (batch_size, seq_len, hidden_size)
+            cross_mask: Cross attention mask (batch_size, seq_len)
+            max_length: Maximum generation length
+            beam_size: Beam size
+            bos_token_id: BOS token ID
+            eos_token_id: EOS token ID
+            tokenizer: Tokenizer for beam
+
+        Returns:
+            Generated sequences (batch_size, max_length)
+        """
+        device = cross_output.device
+        batch_size = cross_output.size(0)
+        
+        # Repeat cross_output and mask for beam search
+        # Shape: (batch_size * beam_size, seq_len, hidden_size)
+        cross_output_repeat = cross_output.repeat(1, beam_size, 1).view(
+            batch_size * beam_size, cross_output.size(1), cross_output.size(2)
+        )
+        cross_mask_repeat = cross_mask.repeat(1, beam_size).view(
+            batch_size * beam_size, cross_mask.size(1)
+        )
+        
+        # Initialize beams for each instance
+        inst_dec_beams = [Beam(beam_size, device=device, tokenizer=tokenizer) for _ in range(batch_size)]
+        
+        # Active instances
+        active_inst_idx_list = list(range(batch_size))
+        inst_idx_to_position_map = {idx: pos for pos, idx in enumerate(active_inst_idx_list)}
+        
+        # Decode step by step
+        for len_dec_seq in range(1, max_length + 1):
+            # Get current decoder inputs from beams
+            dec_partial_seq = self._prepare_beam_dec_seq(inst_dec_beams, len_dec_seq, device)
+            dec_partial_seq = dec_partial_seq.view(-1, len_dec_seq)
+            
+            # Get active cross outputs
+            n_active_inst = len(active_inst_idx_list)
+            active_cross_output = self._gather_active_data(
+                cross_output_repeat, inst_idx_to_position_map, active_inst_idx_list, batch_size, beam_size
+            )
+            active_cross_mask = self._gather_active_data(
+                cross_mask_repeat, inst_idx_to_position_map, active_inst_idx_list, batch_size, beam_size
+            )
+            
+            # Predict word probabilities
+            word_prob = self._predict_word(
+                dec_partial_seq, active_cross_output, active_cross_mask, n_active_inst, beam_size
+            )
+            
+            # Update beams
+            active_inst_idx_list = self._collect_active_inst_idx(
+                inst_dec_beams, word_prob, inst_idx_to_position_map
+            )
+            
+            if not active_inst_idx_list:
+                break  # All beams finished
+            
+            # Update inst_idx_to_position_map
+            inst_idx_to_position_map = {idx: pos for pos, idx in enumerate(active_inst_idx_list)}
+        
+        # Collect hypothesis
+        batch_hyp = []
+        for inst_idx in range(batch_size):
+            scores, tail_idxs = inst_dec_beams[inst_idx].sort_scores()
+            best_hyp = inst_dec_beams[inst_idx].get_hypothesis(tail_idxs[0])
+            batch_hyp.append(best_hyp)
+        
+        # Convert to tensor and pad
+        generated = torch.full((batch_size, max_length), 0, dtype=torch.long, device=device)
+        for i, hyp in enumerate(batch_hyp):
+            generated[i, :len(hyp)] = torch.tensor(hyp[:max_length], dtype=torch.long, device=device)
+        
+        return generated
+    
+    def _prepare_beam_dec_seq(self, inst_dec_beams, len_dec_seq, device):
+        """Prepare decoder input sequences from beams"""
+        dec_partial_seq = [b.get_current_state() for b in inst_dec_beams if not b.done]
+        dec_partial_seq = torch.stack(dec_partial_seq).to(device)
+        return dec_partial_seq
+    
+    def _gather_active_data(self, data, inst_idx_to_position_map, active_inst_idx_list, batch_size, beam_size):
+        """Gather data for active instances"""
+        n_active = len(active_inst_idx_list)
+        new_shape = (n_active * beam_size,) + data.shape[1:]
+        active_data = data.new_zeros(new_shape)
+        
+        for beam_idx, inst_idx in enumerate(active_inst_idx_list):
+            old_pos = inst_idx_to_position_map[inst_idx]
+            start_old = old_pos * beam_size
+            start_new = beam_idx * beam_size
+            active_data[start_new:start_new + beam_size] = data[start_old:start_old + beam_size]
+        
+        return active_data
+    
+    def _predict_word(self, dec_seq, cross_output, cross_mask, n_active_inst, beam_size):
+        """Predict word probabilities"""
+        dec_mask = torch.ones(dec_seq.size(), dtype=torch.long, device=dec_seq.device)
+        
+        # Forward through decoder
+        dec_logits = self.decoder(
+            dec_seq,
+            cross_output,
+            dec_mask,
+            cross_mask,
+        )
+        
+        # Get last token logits
+        dec_output = dec_logits[:, -1, :]
+        word_prob = F.log_softmax(dec_output, dim=1)
+        word_prob = word_prob.view(n_active_inst, beam_size, -1)
+        
+        return word_prob
+    
+    def _collect_active_inst_idx(self, inst_beams, word_prob, inst_idx_to_position_map):
+        """Collect indices of active instances"""
+        active_inst_idx_list = []
+        for inst_idx, inst_position in inst_idx_to_position_map.items():
+            is_inst_complete = inst_beams[inst_idx].advance(word_prob[inst_position])
+            if not is_inst_complete:
+                active_inst_idx_list.append(inst_idx)
+        
+        return active_inst_idx_list
+

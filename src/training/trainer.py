@@ -71,7 +71,7 @@ class Trainer:
         other_params = []
         
         for name, param in self.model.named_parameters():
-            if 'text_encoder.bert' in name:
+            if 'bert.' in name:  # Updated to match new naming
                 bert_params.append(param)
             else:
                 other_params.append(param)
@@ -123,6 +123,14 @@ class Trainer:
             else:
                 outputs = self.model(**batch)
                 loss = outputs['loss']
+            
+            # Average loss across GPUs (DataParallel returns tensor per GPU)
+            if loss.dim() > 0:  # If not scalar (multi-GPU case)
+                loss = loss.mean()
+                # Also average all other loss components
+                for key in outputs:
+                    if 'loss' in key and isinstance(outputs[key], torch.Tensor) and outputs[key].dim() > 0:
+                        outputs[key] = outputs[key].mean()
             
             # Gradient accumulation
             loss = loss / self.training_config.gradient_accumulation_steps

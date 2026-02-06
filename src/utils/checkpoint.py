@@ -136,7 +136,7 @@ def load_pretrained_weights(
     
     print(f"Loading pretrained weights: {checkpoint_path}")
     
-    # Try to load as checkpoint first, fallback to state dict
+    # Load checkpoint
     try:
         checkpoint = torch.load(checkpoint_path, map_location=device)
         if 'model_state_dict' in checkpoint:
@@ -146,15 +146,42 @@ def load_pretrained_weights(
     except:
         state_dict = torch.load(checkpoint_path, map_location=device)
     
-    # Load state dict
-    if hasattr(model, 'module'):
-        missing, unexpected = model.module.load_state_dict(state_dict, strict=strict)
-    else:
-        missing, unexpected = model.load_state_dict(state_dict, strict=strict)
+    # Filter out unused pretrain heads only
+    # All encoder/decoder keys now match directly - NO REMAPPING NEEDED!
+    filtered_state_dict = {}
+    for key, value in state_dict.items():
+        # Skip only MLM/MFM/retrieval heads (not used in caption task)
+        if any(key.startswith(prefix) for prefix in [
+            'cls.',           # MLM prediction head
+            'cls_visual.',    # MFM prediction head  
+            'similarity_',    # Retrieval similarity head
+            'normalize_video.',  # Video normalization
+        ]):
+            continue
+        
+        # Keep all other keys as-is - they match perfectly!
+        filtered_state_dict[key] = value
     
+    # Load weights directly - no remapping!
+    if hasattr(model, 'module'):
+        missing, unexpected = model.module.load_state_dict(filtered_state_dict, strict=strict)
+    else:
+        missing, unexpected = model.load_state_dict(filtered_state_dict, strict=strict)
+    
+    # Print detailed key mismatches for debugging
     if missing:
-        print(f"Missing keys: {missing}")
+        print(f"\n❌ Missing keys ({len(missing)}):")
+        for key in missing[:len(missing)]:  # Show first 10
+            print(f"  - {key}")
+        
     if unexpected:
-        print(f"Unexpected keys: {unexpected}")
+        print(f"\n⚠️ Unexpected keys ({len(unexpected)}):")
+        for key in unexpected[:len(unexpected)]:  # Show first 10
+            print(f"  - {key}")
+    
+    if not missing and not unexpected:
+        print("✅ All weights loaded perfectly!")
+    else:
+        print(f"\n⚠️ Warning: {len(missing)} missing, {len(unexpected)} unexpected keys")
     
     print("Pretrained weights loaded successfully")

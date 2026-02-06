@@ -19,11 +19,8 @@ model:
 
 # Data configuration
 data:
-  data_dir: "data/msrvtt"
-  train_csv: "MSRVTT_train.9k.csv"
-  val_csv: "MSRVTT_JSFUSION_test.csv"
-  data_json: "MSRVTT_data.json"
-  features_path: "msrvtt_videos_features.pickle"
+  data_path: "data/msrvtt/MSRVTT_data.json"  # Single file, split by video_id range
+  features_path: "data/msrvtt/msrvtt_videos_features.pickle"
   max_words: 48
   max_frames: 48
   num_workers: 4
@@ -56,7 +53,7 @@ training:
 # Evaluation configuration
 evaluation:
   # Beam search settings
-  beam_size: 5
+  beam_size: 5  # Beam search with 5 beams (following source UniVL)
   max_gen_length: 20
   length_penalty: 1.0
   # Metrics to compute

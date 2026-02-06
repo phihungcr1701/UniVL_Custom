@@ -33,10 +33,10 @@ model:
 # Data configuration
 data:
   # Paths (relative to data_dir or absolute)
+  # NOTE: MSRVTT uses single data file with split by video_id range
+  # Train: video0-video6512, Val: video6513-video7009, Test: video7010-video9999
   data_dir: "data/msrvtt"
-  train_csv: "MSRVTT_train.9k.csv"
-  val_csv: "MSRVTT_JSFUSION_test.csv"
-  data_json: "MSRVTT_data.json"
+  data_path: "MSRVTT_data.json"  # Single JSON with all videos/captions
   features_path: "msrvtt_videos_features.pickle"
   
   # Data processing

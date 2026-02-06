@@ -108,7 +108,6 @@ dmypy.json
 checkpoints/
 runs/
 wandb/
-data/
 *.pth
 *.bin
 *.pkl

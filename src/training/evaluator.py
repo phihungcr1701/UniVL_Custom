@@ -78,8 +78,15 @@ class Evaluator:
         
         Returns:
             Dictionary of evaluation metrics
+            
+        Note:
+            Currently only uses single reference per video from batch.
+            For accurate MSRVTT evaluation, should use all ~20 references per video.
         """
         self.model.eval()
+        
+        # Unwrap DataParallel to access custom methods
+        model = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
         
         all_predictions = []
         all_references = []
@@ -91,14 +98,15 @@ class Evaluator:
             video = batch['video'].to(self.device)
             video_mask = batch['video_mask'].to(self.device)
             
-            # Generate captions
-            generated_ids = self.model.generate_caption(
+            # Generate captions (use unwrapped model)
+            generated_ids = model.generate_caption(
                 video=video,
                 video_mask=video_mask,
                 max_length=self.eval_config.max_gen_length,
                 beam_size=self.eval_config.beam_size,
                 bos_token_id=self.tokenizer.cls_token_id,
                 eos_token_id=self.tokenizer.sep_token_id,
+                tokenizer=self.tokenizer,  # Pass tokenizer for beam search
             )
             
             # Decode predictions

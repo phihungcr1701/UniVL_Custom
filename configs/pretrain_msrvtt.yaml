@@ -21,9 +21,7 @@ model:
 # Data configuration
 data:
   data_dir: "data/msrvtt"
-  train_csv: "MSRVTT_train.9k.csv"
-  val_csv: "MSRVTT_JSFUSION_test.csv"
-  data_json: "MSRVTT_data.json"
+  data_path: "MSRVTT_data.json"  # Single file, split by video_id range
   features_path: "msrvtt_videos_features.pickle"
   max_words: 48
   max_frames: 48

@@ -2,7 +2,7 @@
 
 from .config import load_config, UniVLConfig
 from .logger import setup_logger
-from .checkpoint import save_checkpoint, load_checkpoint
+from .checkpoint import save_checkpoint, load_checkpoint, load_pretrained_weights
 
 __all__ = [
     "load_config",
@@ -10,4 +10,5 @@ __all__ = [
     "setup_logger",
     "save_checkpoint",
     "load_checkpoint",
+    "load_pretrained_weights",
 ]

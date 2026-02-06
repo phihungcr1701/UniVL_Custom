@@ -22,10 +22,22 @@ pip install -r requirements.txt
 
 ### 1. Prepare Data
 
-Download MSRVTT data and extract S3D video features:
+**IMPORTANT**: MSRVTT uses a single data file with fixed video_id splits:
+- **Train**: video0 - video6512 (6513 videos)
+- **Val**: video6513 - video7009 (497 videos)
+- **Test**: video7010 - video9999 (2990 videos)
+
 ```bash
-# Download MSRVTT annotations and features
-# Place them in data/ directory
+# Download MSRVTT data
+python scripts/download_data.py
+
+# Expected structure:
+# data/msrvtt/
+# ├── MSRVTT_data.json          # Single file with all videos/captions
+# └── features/                 # S3D video features
+#     ├── video0.pkl
+#     ├── video1.pkl
+#     └── ... (video9999.pkl)
 ```
 
 ### 2. Pretrain on MSRVTT
@@ -98,6 +110,16 @@ model:
   hidden_size: 768
 
 training:
+  learning_rate: 3.0e-5
+  batch_size: 128
+  epochs: 5
+
+data:
+  data_dir: "data/msrvtt"
+  data_path: "MSRVTT_data.json"  # Single file, split by video_id range
+  max_words: 48
+  max_frames: 48
+```
   batch_size: 128
   learning_rate: 3e-5
   epochs: 5

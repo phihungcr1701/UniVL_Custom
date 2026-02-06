@@ -37,10 +37,10 @@ class ModelConfig:
 class DataConfig:
     """Data loading configuration"""
     # Paths
+    # NOTE: MSRVTT splits by video_id range, not by separate files
+    # Train: video0-6512, Val: video6513-7009, Test: video7010-9999
     data_dir: str = "data/msrvtt"
-    train_csv: str = "MSRVTT_train.9k.csv"
-    val_csv: str = "MSRVTT_JSFUSION_test.csv"
-    data_json: str = "MSRVTT_data.json"
+    data_path: str = "MSRVTT_data.json"  # Single JSON with all data
     features_path: str = "msrvtt_videos_features.pickle"
     
     # Data processing
