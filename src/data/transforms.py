@@ -7,7 +7,7 @@ from typing import Dict, Tuple
 
 
 class VideoNormalize:
-    """Normalize video features with L2 norm"""
+    """Pad video features to max_frames (NO normalization - done in model)\"\"\"
     
     def __init__(self):
         pass
@@ -19,7 +19,7 @@ class VideoNormalize:
             max_frames: Maximum number of frames
         
         Returns:
-            video: Normalized and padded video (max_frames, feature_dim)
+            video: Padded video (max_frames, feature_dim) - NO normalization
             video_mask: Mask indicating valid frames (max_frames,)
         """
         # Convert to tensor if numpy
@@ -28,8 +28,9 @@ class VideoNormalize:
         
         video = video.float()
         
-        # L2 normalization
-        video = F.normalize(video, p=2, dim=-1)
+        # IMPORTANT: Do NOT normalize here - source UniVL normalizes in model forward
+        # Old (WRONG): video = F.normalize(video, p=2, dim=-1)
+        # New (CORRECT): Keep raw features, model will apply LayerNorm
         
         # Get actual length
         actual_len = min(len(video), max_frames)

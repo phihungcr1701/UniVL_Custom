@@ -116,23 +116,20 @@ class MSRVTTCaptionDataset(Dataset):
     
     def _get_text_features(self, caption: str) -> Dict[str, torch.Tensor]:
         """
-        Tokenize caption for encoder input
+        Get text features for encoder input
+        
+        CRITICAL: For video captioning (caption task), text input is EMPTY!
+        Source UniVL uses only [CLS] [SEP] tokens - this is VIDEO-ONLY captioning.
+        Caption text is ONLY used for decoder training, NOT for encoder!
         
         Returns dict with:
-            - input_ids: Token IDs with [CLS] + caption + [SEP]
+            - input_ids: Token IDs with [CLS] + [SEP] (NO caption text!)
             - attention_mask: Mask for valid tokens
-            - token_type_ids: Segment IDs (all 0s for single sentence)
+            - token_type_ids: Segment IDs (all 0s)
         """
-        # Tokenize
-        caption_tokens = self.tokenizer.tokenize(caption)
-        
-        # Truncate
-        max_caption_len = self.max_words - 2  # Reserve for [CLS] and [SEP]
-        if len(caption_tokens) > max_caption_len:
-            caption_tokens = caption_tokens[:max_caption_len]
-        
-        # Add special tokens
-        tokens = ['[CLS]'] + caption_tokens + ['[SEP]']
+        # For video captioning: encoder gets EMPTY text, only [CLS] [SEP]
+        # This matches source UniVL dataloader_msrvtt_caption.py line 82
+        tokens = ['[CLS]', '[SEP]']  # Empty text input - video-only task!
         
         # Convert to IDs
         input_ids = self.tokenizer.convert_tokens_to_ids(tokens)

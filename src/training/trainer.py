@@ -104,9 +104,6 @@ class Trainer:
         self.current_epoch = epoch
         
         total_loss = 0.0
-        caption_loss_sum = 0.0
-        mlm_loss_sum = 0.0
-        mfm_loss_sum = 0.0
         
         progress_bar = tqdm(self.train_loader, desc=f"Epoch {epoch+1}/{self.training_config.epochs}")
         
@@ -116,21 +113,17 @@ class Trainer:
                     for k, v in batch.items()}
             
             # Forward pass with mixed precision
+            # Model returns scalar loss during training (like source UniVL)
             if self.use_amp:
                 with autocast():
-                    outputs = self.model(**batch)
-                    loss = outputs['loss']
+                    loss = self.model(**batch)  # Returns scalar during training
             else:
-                outputs = self.model(**batch)
-                loss = outputs['loss']
+                loss = self.model(**batch)  # Returns scalar during training
             
-            # Average loss across GPUs (DataParallel returns tensor per GPU)
-            if loss.dim() > 0:  # If not scalar (multi-GPU case)
+            # DataParallel: When model returns scalar, DP gathers to tensor [num_gpus]
+            # Need to average across GPUs
+            if isinstance(loss, torch.Tensor) and loss.dim() > 0:
                 loss = loss.mean()
-                # Also average all other loss components
-                for key in outputs:
-                    if 'loss' in key and isinstance(outputs[key], torch.Tensor) and outputs[key].dim() > 0:
-                        outputs[key] = outputs[key].mean()
             
             # Gradient accumulation
             loss = loss / self.training_config.gradient_accumulation_steps
@@ -164,11 +157,6 @@ class Trainer:
             
             # Accumulate losses
             total_loss += loss.item() * self.training_config.gradient_accumulation_steps
-            caption_loss_sum += outputs.get('caption_loss', 0).item()
-            if 'mlm_loss' in outputs:
-                mlm_loss_sum += outputs['mlm_loss'].item()
-            if 'mfm_loss' in outputs:
-                mfm_loss_sum += outputs['mfm_loss'].item()
             
             # Update progress bar
             progress_bar.set_postfix({
@@ -180,24 +168,16 @@ class Trainer:
             if self.global_step % self.training_config.logging_steps == 0:
                 metrics = {
                     'train/loss': loss.item() * self.training_config.gradient_accumulation_steps,
-                    'train/caption_loss': outputs.get('caption_loss', 0).item(),
                     'train/learning_rate': self.scheduler.get_last_lr()[0],
                 }
-                if 'mlm_loss' in outputs:
-                    metrics['train/mlm_loss'] = outputs['mlm_loss'].item()
-                if 'mfm_loss' in outputs:
-                    metrics['train/mfm_loss'] = outputs['mfm_loss'].item()
-                
                 self.logger.log_scalars(metrics, self.global_step)
         
         # Epoch metrics
         avg_loss = total_loss / len(self.train_loader)
-        avg_caption_loss = caption_loss_sum / len(self.train_loader)
         
         epoch_metrics = {
             'epoch': epoch + 1,
             'train/epoch_loss': avg_loss,
-            'train/epoch_caption_loss': avg_caption_loss,
         }
         
         if self.model_config.pretrain_mode:

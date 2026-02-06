@@ -132,21 +132,22 @@ class Evaluator:
                 all_predictions.append(pred_text)
                 all_references.append([ref_text])  # List of references
         
-        # Save predictions
+        # Save predictions (to file only, no console output)
         if save_predictions:
-            self._save_predictions(all_predictions, all_references, global_step)
+            self._save_predictions(all_predictions, all_references, global_step, verbose=False)
         
         # Compute metrics
         metrics = self._compute_metrics(all_predictions, all_references)
         
-        # Log metrics
-        self.logger.info("Evaluation results:")
+        # Log metrics in compact format (no verbose predictions)
+        metric_str = \" | \".join([f\"{k}: {v:.4f}\" for k, v in metrics.items()])
+        self.logger.info(f\"Eval: {metric_str}\")
         for metric_name, score in metrics.items():
-            self.logger.info(f"  {metric_name}: {score:.4f}")
-            self.logger.log_scalar(f"eval/{metric_name}", score, global_step)
+            self.logger.log_scalar(f\"eval/{metric_name}\", score, global_step)
         
-        # Log sample predictions
-        self._log_samples(all_predictions, all_references, num_samples=5)
+        # Save predictions to file only (no console output)
+        if save_predictions:
+            self._save_predictions(all_predictions, all_references, global_step, verbose=False)
         
         return metrics
     
@@ -188,6 +189,7 @@ class Evaluator:
         predictions: List[str],
         references: List[List[str]],
         global_step: int,
+        verbose: bool = True,
     ):
         """Save predictions and references to files"""
         output_dir = self.output_dir / f"predictions_step_{global_step}"
@@ -215,7 +217,9 @@ class Evaluator:
         with open(json_file, 'w', encoding='utf-8') as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         
-        self.logger.info(f"Predictions saved to {output_dir}")
+        # Only log if verbose (default False)
+        if verbose:
+            self.logger.info(f\"Predictions saved to {output_dir}\")
     
     def _log_samples(
         self,

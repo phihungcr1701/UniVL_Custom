@@ -88,6 +88,9 @@ class UniVLModel(nn.Module):
         self.caption_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
         if self.pretrain_mode:
             self.mlm_loss_fct = nn.CrossEntropyLoss(ignore_index=-1)
+        
+        # Video normalization (matches source: LayerNorm on video features)
+        self.normalize_video = nn.LayerNorm(self.model_config.video_dim, eps=1e-12)
     
     def forward(
         self,
@@ -126,6 +129,14 @@ class UniVLModel(nn.Module):
         """
         outputs = {}
         total_loss = 0.0
+        
+        # Normalize video features (CRITICAL: must match source)
+        # Source uses LayerNorm, NOT L2 normalization
+        video = torch.as_tensor(video).float()
+        video = self.normalize_video(video)
+        if masked_video is not None:
+            masked_video = torch.as_tensor(masked_video).float()
+            masked_video = self.normalize_video(masked_video)
         
         # Determine which inputs to use (masked for pretrain, regular for fine-tuning)
         if self.pretrain_mode and self.training and masked_input_ids is not None:
@@ -222,7 +233,18 @@ class UniVLModel(nn.Module):
                 outputs['mfm_loss'] = mfm_loss
         
         outputs['loss'] = total_loss
-        return outputs
+        
+        # IMPORTANT: Return scalar loss to match source UniVL behavior
+        # Source always returns scalar loss (never dict):
+        # - Training: return loss (sum of all losses)
+        # - Eval: return decoder_loss (for caption task) or None
+        # This ensures DataParallel compatibility and correct loss handling
+        if self.training:
+            return total_loss  # Training: return total loss scalar
+        else:
+            # Eval: return caption loss only (like source's decoder_loss)
+            # Used if computing validation loss, otherwise use generate_caption()
+            return caption_loss
     
     def _calculate_mfm_loss(
         self,
@@ -300,6 +322,10 @@ class UniVLModel(nn.Module):
         """
         batch_size = video.size(0)
         device = video.device
+        
+        # Normalize video (same as forward)
+        video = torch.as_tensor(video).float()
+        video = self.normalize_video(video)
         
         # Create empty text input (for video-only captioning)
         input_ids = torch.full((batch_size, 2), bos_token_id, dtype=torch.long, device=device)
